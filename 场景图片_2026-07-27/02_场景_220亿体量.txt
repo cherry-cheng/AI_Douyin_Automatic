@@ -1,0 +1,10 @@
+场景 2 ｜ 220 亿的体量：半年的积累（冷色 · 特写）
+
+叙事：镜头拉近到桌面细节，散落的财经报刊与一张显示「¥220 BILLION / H1」山形信息图的显示器，金色上升粒子点缀，象征前 5 个月累积的 220 亿元。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, CNN financial B-roll aesthetic, macro close-up of a desk strewn with financial newspapers and charts, a monitor showing a clean infographic of an ascending mountain chart labeled "¥220 BILLION / H1" with subtle golden rising particles, teal-and-gold accents, cool color grade, subtle 35mm film grain, handheld, shallow depth of field, authentic and understated, realistic, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.

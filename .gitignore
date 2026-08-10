@@ -1,0 +1,12 @@
+# === Secrets / local config — 永远不要提交（含真实 API Key）===
+.claude/settings.local.json
+.env
+
+# === macOS ===
+.DS_Store
+
+# === 依赖（可通过 npm install 重装，体积大）===
+node_modules/
+
+# === 日志 ===
+*.log

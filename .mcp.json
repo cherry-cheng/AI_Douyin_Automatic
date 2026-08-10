@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gemini": {
+      "command": "/Users/plato/.local/node-v22.5.0-darwin-x64/bin/node",
+      "args": [
+        "/Users/plato/Documents/trae_projects/Trae_Agent_First_Project/.claude/skills/wjz-p-gemini-skill-1.0.1/src/mcp-server.js"
+      ]
+    }
+  }
+}

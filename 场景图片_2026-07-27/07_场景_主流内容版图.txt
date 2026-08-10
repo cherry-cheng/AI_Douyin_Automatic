@@ -1,0 +1,10 @@
+场景 7 ｜ 主流载体：未来的内容版图（暖色 · 日落 · 收束）
+
+叙事：最终大远景，智慧城市天际线在日落金光中，广告牌、家庭影院、车载屏幕都在播放 AI 剧漫剧，天空中一道半透明横幅「MAINSTREAM CONTENT CARRIER」，铺展成主流内容版图。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, CNN feature-document closing aesthetic, wide handheld establishing shot of a futuristic smart-city skyline at golden-hour sunset, AI comic-drama content streaming on billboards, home-cinema walls and vehicle displays, a faint translucent banner "MAINSTREAM CONTENT CARRIER" arching across the sky, warm sunset color grade with a touch of cool neon, sense of scale and hope, subtle 35mm film grain, shallow depth of field on the foreground, authentic and understated, realistic, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.

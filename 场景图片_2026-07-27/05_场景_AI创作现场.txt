@@ -1,0 +1,10 @@
+场景 5 ｜ 内容形态：AI 如何创造剧漫剧（暖色 · 中景）
+
+叙事：俯肩拍摄一位年轻创作者（面部不入镜），透明平板上一侧是文字提示，另一侧文字瞬间成型为动画角色与分镜，展现 AI 剧漫剧的核心生产方式。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, tech-feature aesthetic, over-the-shoulder shot of a young creator whose face is turned away / obscured, working at a transparent tablet, split screen showing cascading AI prompt text on one side materializing into colorful animated comic-drama characters and storyboards on the other, warm neon-purple and cyan lighting, energetic but authentic, subtle 35mm film grain, handheld, shallow depth of field, realistic UI, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.

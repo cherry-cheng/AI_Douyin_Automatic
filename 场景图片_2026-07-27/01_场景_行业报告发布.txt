@@ -1,0 +1,10 @@
+场景 1 ｜ 行业报告发布：数据的诞生（冷色 · 起调）
+
+叙事：深夜的研究机构，研究员背对镜头注视数据墙，屏幕上《2026上半年AI剧漫剧数据报告》与「¥220 BILLION」的初步数据预示一个产业的觉醒。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, CNN broadcast aesthetic, over-the-shoulder shot from behind a data analyst whose face is not visible (back of head only), standing in a dim financial-news research room at night, large wall of monitors displaying a data report dashboard titled "AI DRAMA 2026 DATA REPORT" with a key metric "¥220 BILLION" glowing on screen, cool tech-blue and violet color grade, screen glow on the room, subtle 35mm film grain, handheld camera, shallow depth of field, cinematic yet understated and realistic, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.

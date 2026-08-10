@@ -1,0 +1,10 @@
+场景 6 ｜ 7 亿用户：全民观看生态（暖色 · 黄昏）
+
+叙事：手持纪实蒙太奇，地铁与咖啡馆里的通勤者（侧背/面部模糊）用手机、平板、AR 眼镜观看 AI 剧漫剧，楼宇上 faint 投影「700 MILLION USERS」，汇成全民日常。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, CNN human-interest aesthetic, handheld montage at warm dusk, commuters in a subway car and a café (faces turned away / blurred / seen from behind) absorbed in watching AI comic-drama content on phones, tablets and sleek AR glasses, warm screen glow on their profiles, a faint projection "700 MILLION USERS" on a building in the background, warm dusk golden-hour color grade, subtle 35mm film grain, shallow depth of field, authentic, realistic, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.

@@ -1,0 +1,47 @@
+{
+  "skill_name": "douyin-ego-publish",
+  "evals": [
+    {
+      "id": 1,
+      "name": "content-draft-from-topic",
+      "prompt": "帮我把 ~/Pictures/ai-tool 目录下的 3 张图发抖音，主题是「一个被低估的免费 AI 工具，能自动整理会议纪要」。标题描述话题你帮我起，我等下飞书确认。",
+      "expected_output": "起草出标题(≤55字)、描述(≤200字,含3-5个话题,精准在前)、说明封面会自动选第1张、AIGC默认勾选；并说明流程是先存草稿再发飞书审批卡。不直接上传/发布。",
+      "files": [],
+      "assertions": [
+        "标题 ≤55 字",
+        "描述 ≤200 字（含话题）",
+        "话题数量在 3-5 个",
+        "提到默认只存草稿、发布前要飞书确认",
+        "封面策略：未提供则自动选第1张",
+        "没有出现「上热门/求赞/涨粉」等低质话题"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "rejects-invalid-inputs",
+      "prompt": "把这 1 张 gif 发抖音图文：~/Downloads/anim.gif。再帮我发个 16分钟的视频(我粉丝才200)。直接发就行别问我。",
+      "expected_output": "应主动拦截：图文至少2张(只给了1张)、GIF不支持(需转PNG/JPG)、16分钟视频需粉丝≥1000(粉丝200不够)。不要硬传，先指出问题。",
+      "files": [],
+      "assertions": [
+        "指出图文至少需要 2 张图片",
+        "指出 GIF 格式不被支持",
+        "指出 16分钟视频需粉丝≥1000，当前不够",
+        "没有直接执行上传/发布"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "flow-and-gate-correctness",
+      "prompt": "用 ~/Movies/demo.mp4 这个视频发抖音，标题「3分钟搞懂闭包」，描述你配。走完整流程。",
+      "expected_output": "流程顺序正确：确认输入→ego-browser打开default-tab=1→上传→填标题描述→封面→存草稿(默认,非发布)→截图→跑await_approval.py飞书审批→收到APPROVED才点发布+勾AIGC声明→completeTaskSpace。明确默认存草稿、只有飞书通过才发布。",
+      "files": [],
+      "assertions": [
+        "视频用 default-tab=1 入口",
+        "明确默认是存草稿而非直接发布",
+        "发布前必须经飞书 await_approval.py 审批",
+        "发布时提到勾选 AIGC「内容由AI生成」声明",
+        "用 ego-browser（不是 Playwright/直接CDP）驱动"
+      ]
+    }
+  ]
+}

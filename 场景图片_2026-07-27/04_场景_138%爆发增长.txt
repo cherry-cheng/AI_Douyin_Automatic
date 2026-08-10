@@ -1,0 +1,10 @@
+场景 4 ｜ 138% 爆发增长：能量释放（暖色 · 高潮特写）
+
+叙事：演播室特写，主播的双手（不入脸）在大屏旁比划，屏幕上「+138%」配金色上升箭头与同心光环，是整个产业最炽热的瞬间。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, CNN breaking-news aesthetic, close-up of a studio presenter's hands gesturing beside a large screen (face NOT in frame), the screen displaying a bold metric "+138%" with golden rising arrows and faint concentric light rings, warm gold color grade at peak intensity, subtle 35mm film grain, handheld, shallow depth of field, authentic and understated despite the energetic number, realistic, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.

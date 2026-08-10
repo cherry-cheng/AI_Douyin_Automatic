@@ -1,0 +1,10 @@
+场景 3 ｜ 攀升的曲线：向 400 亿进发（冷转暖 · 过渡）
+
+叙事：低角度仰拍一块演播室大屏，上升曲线从「220」基点奔向顶峰「¥400 BILLION」，曲线沿途点亮若干 AI 剧漫剧小画面，色调由冷蓝过渡到暖色高光。
+
+【复制以下整段到 Google Flow】
+
+documentary news photography, CNN broadcast aesthetic, low-angle handheld shot looking up at a large studio screen showing a rising line chart climbing from a base node "220" to a summit "¥400 BILLION", small AI comic-drama clips playing along the curve, color grade transitioning from cool blue at the base to warm highlights at the peak, subtle 35mm film grain, shallow depth of field, authentic broadcast look, realistic, NOT glossy CGI, vertical 9:16.
+
+【负面提示词】
+text, watermark, signature, low quality, blurry artifacts, distorted faces, identifiable faces, extra fingers, deformed hands, cluttered, oversaturated, glossy 3D render, cartoon, anime, epic key art, hyper-vibrant.
