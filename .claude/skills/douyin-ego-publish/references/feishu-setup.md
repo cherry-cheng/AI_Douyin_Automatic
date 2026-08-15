@@ -1,8 +1,13 @@
-# 飞书审批门：一次性配置
+# 飞书审批门 + 验证码中继：一次性配置
 
-审批机制：本地起一个 HTTP 回调服务 → cloudflared 临时隧道把它暴露成公网 URL → 飞书卡片上的「✅确认发布 / ❌取消」按钮用 open_url 指向该 URL → Daniel 点击即一次 GET → 本地收到信号 → 脚本继续点发布。
+本技能有**两条独立的飞书消息**，复用同一套基础设施（本地 HTTP + cloudflared 隧道 + 自定义机器人 webhook），**只配一次**：
 
-**为什么用 open_url 按钮而不是飞书回调订阅**：open_url 按钮点击就是一次普通网页访问，不需要在飞书预注册回调地址，因此**临时隧道的 URL 每次变也没关系**，零额外配置。纯自定义机器人 webhook 即可。
+1. **审批门**（`await_approval.py`）：草稿存好 → 发飞书卡片「✅确认发布 / ❌取消」→ Daniel 点击 → Claude 点发布。
+2. **验证码中继**（`await_verification_code.py`）：Claude 点了发布、抖音弹**短信验证码** → 发**另一条**飞书卡片「📝 输入验证码」(open_url 指向一个表单页) → Daniel 填入收到的短信码 → Claude 自动填回抖音验证框、点确认、继续发布。**两条消息不同时触发、用途不同**，技术模式一样。
+
+机制：本地起一个 HTTP 回调服务 → cloudflared 临时隧道把它暴露成公网 URL → 飞书卡片上的按钮用 open_url 指向该 URL → Daniel 点击/提交即一次 GET/POST → 本地收到信号 → 脚本继续。
+
+**为什么用 open_url 按钮而不是飞书回调订阅**：open_url 按钮点击就是一次普通网页访问，不需要在飞书预注册回调地址，因此**临时隧道的 URL 每次变也没关系**，零额外配置。纯自定义机器人 webhook 即可。验证码中继的「输入验证码」按钮点开后是一个**移动端表单页**，Daniel 在网页里填码 POST 回来——同样不需要飞书原生输入回调/开放平台应用。
 
 ## 三步配置
 
@@ -42,15 +47,23 @@ cat > ~/.config/douyin-ego-publish/config.json <<'EOF'
   "feishu_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/把你的换上",
   "feishu_secret": "SEC把你的换上或留空字符串",
   "approval_port": 8848,
-  "approval_timeout_sec": 540
+  "approval_timeout_sec": 540,
+  "verify_timeout_sec": 300
 }
 EOF
 ```
 - `approval_port`：本地回调服务端口，8848 被占会自动换空闲端口
-- `approval_timeout_sec`：等待 Daniel 点击的最长时间，默认 540 秒(9 分钟)，受 Claude Code 单次 Bash 超时(10 分钟)限制，**不要设超过 560**
+- `approval_timeout_sec`：审批门等待 Daniel 点击的最长时间，默认 540 秒(9 分钟)，受 Claude Code 单次 Bash 超时(10 分钟)限制，**不要设超过 560**
+- `verify_timeout_sec`：验证码中继等待 Daniel 填码的最长时间，默认 300 秒，**贴合短信时效**（短信一般 5 分钟有效）；可不改
 
 ## 验证
 配好后，让 Claude 跑一次 dry-run（或直接在 SKILL.md Step 7 触发一次），飞书群里应收到一张橙色标题「🎬 抖音发布待审批」卡片，带预览和两个按钮。点「确认发布」会打开一个绿色「✅ 已确认发布」页面，Claude 那边脚本会返回 `RESULT=APPROVED`。
+
+**单独验证中继**（不碰抖音、不起隧道）：
+```bash
+python3 scripts/await_verification_code.py --local-only --timeout 60
+```
+会打印一个 `http://127.0.0.1:PORT/code?token=xxx` 表单页链接，浏览器打开填 4-8 位数字提交，脚本应返回 `RESULT=CODE_RECEIVED` + `CODE=你填的码`。验证完 `Ctrl+C` 退出即可。
 
 ## 安全说明
 - 每次发布生成随机 token，按钮 URL 带 token，无 token 或 token 不对的请求一律 404
@@ -63,6 +76,8 @@ EOF
 | `RESULT=NOCONFIG` | config.json 不存在或缺 webhook，重做第 3 步 |
 | `RESULT=NO_CF` | cloudflared 没装/不在 PATH，`brew install cloudflared` |
 | `RESULT=SEND_FAILED` | webhook URL 错或加签 secret 不匹配；检查 URL 和 secret |
-| `RESULT=TIMEOUT` | 9 分钟没点；可调大 `approval_timeout_sec` 或下次快点 |
+| `RESULT=TIMEOUT` | 审批门：9 分钟没点；验证码中继：短信超时(默认 300s)没填。可调大对应 `*_timeout_sec`，或下次快点 |
+| 验证码卡片里填了码但提示「重新输入」 | 填的不是 4-8 位数字；表单会自动只留数字，直接重填即可 |
+| 验证码中继 `CODE=` 拿到但抖音仍卡验证页 | 码错/过期，**转人工**别自动重试（短时重发触发更强风控） |
 | 飞书收到卡片但按钮点了没反应 | 隧道可能掉了；看脚本输出里 `🌐 隧道已就绪` 那行的 URL 是否能在浏览器打开 |
 | 加签报 `sign match fail` | secret 复制错了，或选了「自定义关键词」而非「加签」 |

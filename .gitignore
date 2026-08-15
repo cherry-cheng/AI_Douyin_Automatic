@@ -10,3 +10,10 @@ node_modules/
 
 # === 日志 ===
 *.log
+
+# === Python 运行时缓存 ===
+__pycache__/
+*.pyc
+
+# === 运行时日志与抓取数据 ===
+logs/
