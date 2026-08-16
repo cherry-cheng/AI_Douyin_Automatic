@@ -4,6 +4,9 @@
 # 手动补跑：bash ~/daily-news-douyin/run_daily.sh
 PROJECT=/Users/plato/Documents/trae_projects/Trae_Agent_First_Project
 RUNDIR=/Users/plato/daily-news-douyin
+# launchd 的 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin，找不到 node（claude wrapper 依赖它）。
+# 8/16 实测：不加这行，claude exit=127 "node: not found"，整轮 3 秒报废。
+export PATH="$HOME/.local/node-v22.5.0-darwin-x64/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 LOGDIR="$RUNDIR/logs"
 mkdir -p "$LOGDIR" "$PROJECT/logs" "$PROJECT/reports" 2>/dev/null
 LOG="$LOGDIR/daily-$(date +%F).log"
