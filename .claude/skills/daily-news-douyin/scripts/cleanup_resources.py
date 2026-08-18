@@ -78,16 +78,31 @@ def find_ego_browser():
 
 
 def run_js(ego, js, timeout):
-    """注入常量后跑 ego-browser nodejs；失败返回 (False, tail_of_output)。"""
+    """注入常量后跑 ego-browser nodejs；失败返回 (False, tail_of_output)。
+
+    必须 start_new_session（自成进程组）：subprocess.run 超时后只 kill 直接
+    子进程，若 ego-browser 派生的孙进程还握着 stdout 管道，communicate() 会
+    永远等不到 EOF——8/17 实测卡 23h，吞掉次日 8:00 的 launchd 触发。
+    超时后 killpg 整组回收，管道随之关闭。
+    """
     script = js.replace("PIPELINE_SPACES_JSON",
                         json.dumps(sorted(PIPELINE_SPACES)))
+    p = subprocess.Popen([ego, "nodejs"], stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, cwd=PROJ, start_new_session=True)
+    # 组长 pid 即 pgid。必须启动瞬间记下：组长自己先退出后 getpgid(pid) 会抛
+    # ProcessLookupError，而进程组只要还有孙进程就活着（首轮修复实测踩过）。
+    pgid = p.pid
     try:
-        p = subprocess.run([ego, "nodejs"], input=script, capture_output=True,
-                           text=True, timeout=timeout, cwd=PROJ)
+        out, _ = p.communicate(input=script, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return False, "ego-browser 超时"
-    out = (p.stdout or "") + (p.stderr or "")
-    return p.returncode == 0, out
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            p.kill()
+        p.communicate()   # 回收管道，防僵尸
+        return False, "ego-browser 超时(已杀进程组)"
+    return p.returncode == 0, out or ""
 
 
 def close_pipeline_spaces(ego):
@@ -190,7 +205,21 @@ def clean_tmp():
     return removed, kept
 
 
+def _alarm_handler(signum, frame):
+    # 兜底硬上限：清理逻辑任何一个环节卡死都不许超过 10 分钟
+    # （否则 launchd 下一次日历触发会被吞，见 run_js 注释）。
+    print("⚠️ cleanup 整体超时(10min)，强制收尾退出")
+    try:
+        json.dump({"ts": time.strftime("%F %T"), "error": "overall_timeout_10min"},
+                  open(RESULT_PATH, "w"), ensure_ascii=False)
+    except OSError:
+        pass
+    sys.exit(0)   # 清理永远不算失败，不阻断日报
+
+
 def main():
+    signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(600)
     ego = find_ego_browser()
     spaces_result, spaces_err = (None, "ego-browser 未找到")
     if ego:
