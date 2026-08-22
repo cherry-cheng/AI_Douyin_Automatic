@@ -5,9 +5,16 @@
   ① task space：只关本流水线名下的 agent-owned space——'visual notes'、
      'douyin publish'、'gemini-health-check'。user-owned（如 Daniel 手开的
      'douyin publish probe'）和 agentDelegatedToUser（审批门交接出去的）一律跳过。
-  ② 孤儿进程：claude -p 被 kill 时，await_approval.py / await_verification_code.py
-     及其 cloudflared 子进程会变孤儿挂着（审批门最长 2h）。按命令行特征精准匹配后 TERM。
-     注意 ego lite 浏览器是 Daniel 的登录态载体，绝不能按浏览器进程名杀。
+  ② 孤儿进程（2026-08-22 重写）：await_approval.py 已守护化（--detach 双 fork，
+     生命周期独立于 claude，见 await_approval.py _detach 注释）。清理策略：
+     - 活门豁免：/tmp/douyin_approval_current.json 登记的 pid 存活且确是 await_approval
+       → 不杀（它在等 Daniel 点飞书卡片），其 cloudflared 子进程一并保留
+     - 未登记的 await_approval：etime > 3h15m（超审批窗 7200s+余量）判残留 → TERM；
+       窗口内的不杀（可能刚 fork 还没登记，或正在正常服务）
+     - await_verification_code.py 未守护化，沿用旧逻辑：父进程死 → TERM
+     - cloudflared：父是活门 → 留；父死 → TERM；其余留（防误杀 Daniel 手动隧道）
+     2026-08-22 事故教训：旧「孤儿即杀」在 claude 提前退出时把活着的审批门连同隧道杀掉，
+     Daniel 点飞书「确认发布」打到死 URL 报错。
   ③ /tmp 残留：hot.json、douyin_draft_preview.png、gemini_health.json 等本流水线的临时文件。
 
 结果 JSON 落 /tmp/cleanup_result.json 供日报引用。永远 exit 0（清理失败不阻断日报）。
@@ -34,6 +41,10 @@ ORPHAN_PATTERNS = [
     re.compile(r"await_approval\.py"),
     re.compile(r"await_verification_code\.py"),
 ]
+# 守护化活门登记文件（await_approval.py --detach 模式维护）
+APPROVAL_CURRENT = "/tmp/douyin_approval_current.json"
+# 守护化审批门的最大合法寿命：审批窗 7200s + 15min 余量（超时守护进程应已自然退出）
+APPROVAL_MAX_AGE_SEC = 7200 + 900
 # cloudflared 只杀「无 controlling tty + 由 python 起的 quick tunnel」——
 # 特征 = 命令行含 "tunnel --no-autoupdate --url http://127.0.0.1:PORT"
 CF_PATTERN = re.compile(r"cloudflared.*tunnel.*--no-autoupdate\s+--url\s+http://127\.0\.0\.1:\d+")
@@ -125,9 +136,38 @@ def ps_lines():
     return rows
 
 
+def _proc_age_sec(cmd_pid, procs_by_pid):
+    """ps etime 起步年份不可靠时退化 0；这里用 ps -o etime 解析。找不到返回 None。"""
+    try:
+        out = subprocess.run(["ps", "-o", "etime=", "-p", str(cmd_pid)],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:
+        return None
+    if not out:
+        return None
+    # etime 形如 "MM:SS" / "HH:MM:SS" / "D-HH:MM:SS" / "D-HH:MM"
+    days = 0
+    parts = out.split("-")
+    if len(parts) == 2:
+        days = int(parts[0])
+        out = parts[1]
+    fields = [int(x) for x in out.split(":")]
+    if len(fields) == 2:
+        h, m, s = 0, fields[0], fields[1]
+    else:
+        h, m, s = fields[0], fields[1], fields[2]
+    return days * 86400 + h * 3600 + m * 60 + s
+
+
 def kill_orphans():
-    """TERM 流水线孤儿进程。cloudflared 只在「其父 await_* python 已判定为孤儿」时一起杀，
-    避免误杀 Daniel 手动起的隧道。返回 (killed, kept) 列表。"""
+    """2026-08-22 重写：活门豁免 + etime 判残留。
+
+    await_approval.py（守护化）：
+      - current.json 登记的 pid 活着且命令行确是 await_approval → 豁免（活门）
+      - 未登记的：etime > APPROVAL_MAX_AGE_SEC → 残留 TERM；否则不杀（窗口内）
+    await_verification_code.py（未守护化）：父进程死 → TERM（旧逻辑）
+    cloudflared：父活（含活门）→ 留；父死 → TERM
+    """
     procs = ps_lines()
     by_pid = {p["pid"]: p for p in procs}
     me = os.getpid()
@@ -140,9 +180,31 @@ def kill_orphans():
         except OSError:
             return False
 
+    # —— 读取活门登记（await_approval --detach 维护）——
+    gate_pids = set()
+    try:
+        with open(APPROVAL_CURRENT) as f:
+            cur = json.load(f)
+        gp = int(cur.get("pid", 0))
+        # 双重校验：pid 活着 + python 直跑 await_approval（防过期文件误配新 pid / bash 包装误认）
+        if gp and gp != me and alive(gp):
+            cmd = by_pid.get(gp, {}).get("cmd", "")
+            if re.search(r"await_approval\.py", cmd) and re.match(r"^(\S+/)?python3?\s", cmd):
+                gate_pids.add(gp)
+                kept.append({"pid": gp, "why": "active_approval_gate", "cmd": cmd[:120]})
+            else:
+                kept.append({"pid": gp, "why": "current.json pid 命令行不匹配，忽略", "cmd": cmd[:120]})
+    except (OSError, ValueError):
+        pass   # 无活门文件 = 没有活门，正常
+
     await_pids = set()
     for p in procs:
         if p["pid"] == me or p["pid"] == 1:
+            continue
+        # ⚠️ 只认「python 解释器直接跑脚本」的进程；bash -c / snapshot 包装命令里
+        # 出现脚本名（历史命令回显）不算（2026-08-22 实测：shell-snapshot 的
+        # bash -c 命令行含 await_approval 字样被当成了审批门）
+        if not re.match(r"^(\S+/)?python3?\s", p["cmd"]):
             continue
         if any(rx.search(p["cmd"]) for rx in ORPHAN_PATTERNS):
             await_pids.add(p["pid"])
@@ -154,40 +216,43 @@ def kill_orphans():
         if CF_PATTERN.search(p["cmd"]):
             cf_pids.add(p["pid"])
 
-    # await_* 孤儿判定：父进程已死（ppid=1 或父不在进程表）
-    orphan_awaits = {pid for pid in await_pids
-                     if not alive(by_pid[pid]["ppid"]) or by_pid[pid]["ppid"] == 1}
-    # 例外：父是活的 claude/python 属正常陪伴，不杀
-    for pid in list(orphan_awaits):
+    term_awaits = set()
+    for pid in await_pids:
+        cmd = by_pid[pid]["cmd"]
+        if pid in gate_pids:
+            continue                      # 活门豁免
+        if re.search(r"await_approval\.py", cmd):
+            # 守护化审批门：只按寿命判残留
+            age = _proc_age_sec(pid, by_pid)
+            if age is not None and age > APPROVAL_MAX_AGE_SEC:
+                term_awaits.add(pid)
+                kept.append({"pid": pid, "why": "stale_gate>3h15m TERM", "cmd": cmd[:120]})
+            else:
+                kept.append({"pid": pid, "why": "gate_in_window", "cmd": cmd[:120]})
+            continue
+        # await_verification_code.py 等未守护化脚本：旧孤儿判定（父死即杀）
         ppid = by_pid[pid]["ppid"]
-        parent = by_pid.get(ppid)
-        if parent and ppid != 1 and re.search(r"claude|python", parent["cmd"]):
-            orphan_awaits.discard(pid)
-            kept.append({"pid": pid, "why": "parent_alive", "cmd": by_pid[pid]["cmd"][:120]})
+        if not alive(ppid) or ppid == 1:
+            term_awaits.add(pid)
 
-    for pid in await_pids - orphan_awaits:
-        kept.append({"pid": pid, "why": "not_orphan", "cmd": by_pid[pid]["cmd"][:120]})
-
-    for pid in orphan_awaits:
+    for pid in term_awaits:
         try:
             os.kill(pid, signal.SIGTERM)
             killed.append({"pid": pid, "cmd": by_pid[pid]["cmd"][:120], "sig": "TERM"})
         except OSError as e:
             kept.append({"pid": pid, "why": f"kill_failed:{e}", "cmd": by_pid[pid]["cmd"][:120]})
 
-    # cloudflared：父是孤儿 await_* 或父已死 → 一起 TERM；父活着 → 留给 await_* 自己的 finally
+    # cloudflared：父活 → 留给父的 finally；父死 → TERM（含父是被杀的孤儿脚本）
     for pid in cf_pids:
         ppid = by_pid[pid]["ppid"]
-        parent = by_pid.get(ppid)
-        parent_is_orphan_await = ppid in orphan_awaits
-        if parent_is_orphan_await or not alive(ppid) or ppid == 1:
+        if alive(ppid) and ppid != 1:
+            kept.append({"pid": pid, "why": "parent_alive", "cmd": by_pid[pid]["cmd"][:120]})
+        else:
             try:
                 os.kill(pid, signal.SIGTERM)
                 killed.append({"pid": pid, "cmd": by_pid[pid]["cmd"][:120], "sig": "TERM(cfd)"})
             except OSError:
                 pass
-        else:
-            kept.append({"pid": pid, "why": "parent_alive", "cmd": by_pid[pid]["cmd"][:120]})
 
     return killed, kept
 

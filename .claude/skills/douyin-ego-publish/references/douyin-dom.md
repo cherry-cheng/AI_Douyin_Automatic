@@ -1,13 +1,15 @@
 # 抖音创作者后台：选择器、按钮变体、上传与风控排坑
 
-> 来自 douyin-smart-publish 实战 + 2026-08 排坑记忆。抖音是 React + CSS Modules，class 名含 hash，**优先用文本匹配 `has-text` 或 `placeholder` 定位**。
+> 来自 douyin-smart-publish 实战 + 2026-08 排坑记忆。抖音是 React + CSS Modules，class 名含 hash，**优先按文本/placeholder 定位**。
+>
+> ⚠️ **但 ego-browser 不支持 `:has-text()` 伪类**（Playwright 专属语法，2026-08-21 实测报错）。「按文案找按钮」在 ego-browser 里的正确姿势 = **JS 遍历 `querySelectorAll('button')` 按文本精确匹配拿坐标 → CDP 点击**（见 SKILL.md Step 6 脚本）。下表 `has-text` 写法仅作元素/文案索引，不是可执行选择器。
 
 ## 平台入口
 - 创作者中心：https://creator.douyin.com
 - 内容上传：https://creator.douyin.com/creator-micro/content/upload
 - **图文上传**：`?default-tab=3`
 - **视频上传**：`?default-tab=1`（默认）
-- 草稿箱：https://creator.douyin.com/creator-micro/content/manage
+- 草稿箱：⚠️ **manage 页实际没有「草稿」tab**（2026-08-21 实测）。**草稿找回路径 = 打开 upload 页 → 点「继续编辑」**（出现「你还有上次未发布的图文，是否继续编辑？」提示即草稿在）
 
 ## 发布类型
 | 类型 | URL 参数 | 说明 |
@@ -19,12 +21,12 @@
 ## UI 选择器参考
 | 元素 | 定位策略 | 说明 |
 |------|----------|------|
-| 上传区域 | `input[type="file"]` / `button:has-text("上传视频")` | **先确认已登录**，未登录时可能为 0 |
+| 上传区域 | `input[type="file"]` / 按文案「上传视频」找 button | **先确认已登录**，未登录时可能为 0 |
 | 描述输入 | `[class*="desc"] [contenteditable]` / `textarea` / `[placeholder*="添加作品描述"]` | 描述编辑区 |
 | 话题输入 | 描述区中输入 `#` 触发话题搜索 | 弹窗选第一个匹配 |
 | 封面选择 | `[class*="cover"]` / 封面编辑弹窗 | **默认不设（用抖音默认效果）**；编辑器「确定」按钮在自动化下关不掉，要设转人工 |
-| 发布按钮 | `button:has-text("发布")`（`button.fixed-J9O8Yw.primary`） | 发布确认。⚠️ CDP 点击可能被吞，需 React onClick 直调兜底（见风控坑） |
-| 草稿按钮 | `button:has-text("暂存离开")` / `button:has-text("存草稿")` / `button:has-text("草稿")` | **图文页常见为「暂存离开」** |
+| 发布按钮 | 按文案「发布」找 button（`button.fixed-J9O8Yw.primary`） | 发布确认。⚠️ CDP 点击可能被吞，需 React onClick 直调兜底（见风控坑） |
+| 草稿按钮 | 按文案「暂存离开」/「存草稿」/「草稿」找 button | **图文页常见为「暂存离开」**；fixed 主按钮同有被吞坑，React onClick 直调兜底 |
 | 标题栏 | `input[placeholder*="标题"]` | ≤55 字（图文实测 ≤20 更稳） |
 
 ## 草稿按钮文案变体
@@ -34,7 +36,7 @@
 | `暂存离开` | 图文上传页（当前最常见） |
 | `草稿` | 部分版本 |
 
-ego-browser 点击时三个变体都试：`暂存离开` → `存草稿` → `草稿`。
+ego-browser 点击时三个变体都试：`暂存离开` → `存草稿` → `草稿`（JS 文本匹配，**不是** `has-text` 选择器——ego-browser 不支持，见文首警告）。
 
 ## 登录判断（实战经验，别只看 URL）
 - 即使 URL 已在 `creator-micro/*` 下，页面仍可能是扫码登录态

@@ -27,12 +27,15 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 RESULT_FILE_PREFIX = "/tmp/douyin_approval"
+# 守护化状态文件（--detach 模式）：current=活门登记，result=终态（含 KILLED）
+CURRENT_FILE = "/tmp/douyin_approval_current.json"
+RESULT_FILE = "/tmp/douyin_approval_result.json"
 
 APPROVE_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>已确认</title>
-<style>body{{font-family:-apple-system,sans-serif;display:flex;align-items:center;
-justify-content:center;height:100vh;margin:0;background:#f0fdf4;color:#166534}}
-.c{{text-align:center}}h1{{font-size:48px;margin:8px 0}}p{{color:#15803d}}</style></head>
+<style>body{font-family:-apple-system,sans-serif;display:flex;align-items:center;
+justify-content:center;height:100vh;margin:0;background:#f0fdf4;color:#166534}
+.c{text-align:center}h1{font-size:48px;margin:8px 0}p{color:#15803d}</style></head>
 <body><div class="c"><h1>✅</h1><h2>已确认发布</h2><p>Claude 正在自动点「发布」，可关闭此页面。</p>
 </div></body></html>"""
 
@@ -146,7 +149,15 @@ def start_server(port, state):
 
 
 def start_tunnel(port):
-    """起 cloudflared 临时隧道，返回 (proc, public_url)。"""
+    r"""起 cloudflared 临时隧道，返回 (proc, public_url)。
+
+    ⚠️ 2026-08-22 坑：quick tunnel 的随机子域形如 dreams-fork-permit-onion.trycloudflare.com
+    （≥3 个词），但输出流里可能先出现 api.trycloudflare.com 等官方域（版本信息/错误提示行）。
+    旧正则 [a-z0-9-]+\.trycloudflare\.com 谁先出现匹配谁，曾截胡拿到 api. 域名——
+    卡片按钮指到 Cloudflare API 上，Daniel 点了必报错。收紧为：
+    ① 优先匹配横幅行 "Visit it at ... https://xxx.trycloudflare.com"（quick tunnel 真实 URL 唯一来源）
+    ② 兜底正则要求子域为多词随机形态（\w+-\w+-\w+ 起步），排除 api/www/dashboard 等短官方域
+    """
     proc = subprocess.Popen(
         ["cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -155,13 +166,16 @@ def start_tunnel(port):
     deadline = time.time() + 60
     buf = ""
     url = None
+    banner_re = re.compile(r"Visit it at.*?(https://[a-z0-9-]+\.trycloudflare\.com)", re.S)
+    # 多词随机子域（dreams-fork-permit-onion 式，≥2 个连字符词段）；api/www 等单词官方域不匹配
+    random_re = re.compile(r"https://(?:[a-z0-9]+-){2,}[a-z0-9]+\.trycloudflare\.com")
     while time.time() < deadline:
         line = proc.stdout.readline()
         if line:
             buf += line
-            m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", buf)
+            m = banner_re.search(buf) or random_re.search(buf)
             if m:
-                url = m.group(0)
+                url = m.group(1)
                 break
         elif proc.poll() is not None:
             break
@@ -252,6 +266,63 @@ def send_feishu_card(webhook, secret, fields, tunnel, token, screenshot_name):
         return False, resp_body
 
 
+def _write_json_atomic(path, obj):
+    """原子写 JSON（tmp+rename），防读方读到半截文件。"""
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def _write_result(token, result, extra=None):
+    """终态落盘到固定路径（RESULT_FILE）+ token 文件（保留旧排查习惯）。"""
+    payload = {"result": result, "token": token, "ts": time.strftime("%F %T")}
+    if extra:
+        payload.update(extra)
+    try:
+        _write_json_atomic(RESULT_FILE, payload)
+        _write_json_atomic(f"{RESULT_FILE_PREFIX}_{token}.json", payload)
+    except OSError:
+        pass
+
+
+def _clear_current():
+    try:
+        os.remove(CURRENT_FILE)
+    except OSError:
+        pass
+
+
+def _detach():
+    """双 fork + setsid 守护化：脱离 claude/shell 的进程树与 stdout 管道。
+
+    2026-08-22 事故根因：审批门以前作为 claude 的后台 Bash 任务跑，claude -p
+    单回合结束（end_turn）即退出 → 审批脚本成孤儿 → 被 run_daily 兜底清理杀掉
+    → 隧道死 → Daniel 点飞书「确认发布」打到死 URL 报错。
+    守护化后审批门生命周期只由自己的 timeout 决定（默认 7200s），claude 死活无关。
+    """
+    if os.fork() > 0:
+        os._exit(0)          # 原 shell 立即返回，孙进程独立
+    os.setsid()
+    if os.fork() > 0:
+        os._exit(0)          # 二次 fork：彻底断开会话首进程（防重获 tty）
+    # 守护进程不持有任何终端/管道；stdout/stderr 丢弃（终态已落盘 RESULT_FILE）
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, 0)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    if devnull > 2:
+        os.close(devnull)
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=os.path.expanduser("~/.config/douyin-ego-publish/config.json"))
@@ -263,6 +334,9 @@ def main():
     ap.add_argument("--aigc", default="已勾选「内容由AI生成」")
     ap.add_argument("--timeout", type=int, default=None,
                     help="覆盖 config 的 approval_timeout_sec（测试用）")
+    ap.add_argument("--detach", action="store_true",
+                    help="守护化运行：脱离调用方进程树（claude 死活不影响），"
+                         "终态写 " + RESULT_FILE + "（定时流水线用；手动调试不加）")
     args = ap.parse_args()
 
     # 读配置
@@ -283,16 +357,57 @@ def main():
     if not webhook:
         print("❌ config.json 缺 feishu_webhook。")
         print("RESULT=NOCONFIG")
+        _write_result("noconfig", "NOCONFIG")
         return
     if not shutil_which("cloudflared"):
         print("❌ 未找到 cloudflared。请先运行: brew install cloudflared")
         print("RESULT=NO_CF")
+        _write_result("no_cf", "NO_CF")
         return
 
+    # —— 守护化分叉点：之后本进程已脱离调用方进程树（见 _detach 注释）——
+    if args.detach:
+        _detach()
+    my_pid = os.getpid()
+
+    # 防叠门：若上一扇门还活着（pid 存活且未写终态），先 TERM 它再开门
+    # （同轮流水线残留的旧门会占着 8848 端口和一张过期卡片，必须让位）
+    try:
+        with open(CURRENT_FILE) as f:
+            prev = json.load(f)
+        prev_pid = int(prev.get("pid", 0))
+        if prev_pid and prev_pid != my_pid and _alive(prev_pid):
+            try:
+                os.kill(prev_pid, signal.SIGTERM)
+                for _ in range(20):
+                    if not _alive(prev_pid):
+                        break
+                    time.sleep(0.2)
+            except OSError:
+                pass
+    except (OSError, ValueError):
+        pass
+    _clear_current()
+
+    # SIGTERM（超期收割/新门替位）也要留终态，否则等待方永远等不到文件
+    def _on_term(signum, frame):
+        _write_result(token_holder[0], "KILLED",
+                      {"why": "SIGTERM", "ts": time.strftime("%F %T")})
+        _clear_current()
+        os._exit(0)
+    signal.signal(signal.SIGTERM, _on_term)
+    token_holder = [""]   # token 生成后回填；闭包按引用取
+
     token = hashlib.sha1(os.urandom(24)).hexdigest()[:20]
+    token_holder[0] = token
     state = State(token)
     state.screenshot = args.screenshot
     shot_name = os.path.basename(args.screenshot) if args.screenshot else None
+    # 活门登记：cleanup_resources.py 与等待方据此识别「这扇门还活着，别杀/再等」
+    _write_json_atomic(CURRENT_FILE, {
+        "pid": my_pid, "token": token, "started": time.strftime("%F %T"),
+        "timeout": timeout, "title": args.title,
+    })
 
     # 1) 起本地回调服务
     port = free_port(port)
@@ -312,26 +427,33 @@ def main():
         if not ok:
             print(f"❌ 飞书卡片发送失败: {info}", flush=True)
             print("RESULT=SEND_FAILED")
+            _write_result(token, "SEND_FAILED", {"info": str(info)[:300]})
             return
         print(f"📨 审批卡片已发到飞书，等待 Daniel 点击（超时 {timeout}s）...", flush=True)
 
-        # 4) 阻塞轮询
+        # 4) 阻塞轮询 + 心跳：current 文件每 60s 刷新 ts，
+        #    cleanup 判「活门」看 pid 存活即可，ts 心跳供人工排查
         deadline = time.time() + timeout
+        last_beat = 0.0
         while time.time() < deadline:
             with state.lock:
                 if state.result:
                     break
+            if time.time() - last_beat > 60:
+                last_beat = time.time()
+                _write_json_atomic(CURRENT_FILE, {
+                    "pid": my_pid, "token": token,
+                    "started": time.strftime("%F %T"),
+                    "beat": time.strftime("%F %T"),
+                    "timeout": timeout, "title": args.title,
+                })
             time.sleep(2)
 
         with state.lock:
             result = state.result or "TIMEOUT"
 
-        # 5) 落盘结果（供排查）
-        try:
-            with open(f"{RESULT_FILE_PREFIX}_{token}.json", "w") as f:
-                json.dump({"result": result, "token": token}, f, ensure_ascii=False)
-        except Exception:
-            pass
+        # 5) 终态落盘：固定路径（等待方/清理方读）+ token 文件（排查习惯）
+        _write_result(token, result, {"title": args.title})
 
         if result == "APPROVED":
             print("✅ 已收到确认，开始发布。", flush=True)
@@ -341,6 +463,7 @@ def main():
             print(f"⏰ 等待超时({timeout}s)，保留草稿不发布。", flush=True)
         print(f"RESULT={result}")
     finally:
+        _clear_current()
         try:
             httpd.shutdown()
         except Exception:
