@@ -319,13 +319,17 @@ ego-browser nodejs <<'EOF'
 const task = await useOrCreateTaskSpace('douyin publish')
 const KEYWORD = '科技感'   // ← 按内容主题换：AI/科技→科技感；技术→lofi；商业→大气 …
 
-// ===== 配乐三坑（2026-08-13 真机实测，全部踩过并验证）=====
+// ===== 配乐五坑（①③=8/13 真机实测；④⑤=8/23 事故：CDP 限流+弱判定 → 无配乐帖静默发出，日报误写✅）=====
 // ① 入口「选择音乐」页面有多个同名元素，但只有 **cursor:pointer + 含 svg** 的那个能点开面板；
 //    其余是 cursor:auto 的纯文字标签，点不动。别靠「猜宽度 w<70」——会撞到不可点的副本。
 // ② 搜索框 placeholder 是「搜索音乐」(不是泛"搜索")——`fillInput('input[placeholder*="搜索"]')` 会撞到话题搜索框。
 //    且必须用 **React setter + dispatch input/change + 回车** 触发搜索；`Input.insertText` 只改值不触发请求。
 // ③ 曲目是虚拟滚动卡片，每首的「使用」按钮**初始不渲染**——先 **点曲目卡片**(整张 pointer)让「使用」浮现，再点它。
 //    别去 `===使用` 文本匹配(它是「X万人使用使用」的一部分，永远匹配不到独立按钮)。
+// ④ 面板打开要**轮询等**「搜索音乐」框（≤10 次×1s）：慢代理下渲染可 >3s；单次找不到就跳过 = 静默丢配乐(8/23)。
+// ⑤ 成功判定**必须锚定配乐行**：空态提示「点击添加合适作品风格音乐」**消失** + 入口按钮(pointer+svg)文案
+//    变「修改音乐/更换音乐」才算配上。**禁止全页正则** /修改音乐|更换音乐|创作的原声/ ——页面上别处也有这些词，
+//    8/23 它把「没配上」连误报三次(配乐结果✅ / hasChange:true / 草稿核验hasMusic:true)，日报跟着写假✅。
 
 // ① 定位真正的配乐入口按钮：cursor:pointer + 含 svg
 const entry = await js(String.raw`(() => {
@@ -343,20 +347,24 @@ const entry = await js(String.raw`(() => {
 if(!entry){ cliLog('ℹ️ 没找到配乐入口（可能已配乐/该图集无配乐入口），跳过配乐') }
 else if(entry.y<40||entry.y>entry.vh-40){ cliLog('⚠️ 配乐入口不在视口安全区(y='+entry.y+')，先滚动再试') }
 else {
-  // 点入口开面板（CDP 人类化点击）
+  // 点入口开面板（CDP 人类化点击；限流时改 element.click() 纯页面事件，配乐非敏感动作）
   await cdp('Input.dispatchMouseEvent',{type:'mouseMoved',x:entry.x,y:entry.y})
   await cdp('Input.dispatchMouseEvent',{type:'mousePressed',x:entry.x,y:entry.y,button:'left',clickCount:1,buttons:1})
   await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',x:entry.x,y:entry.y,button:'left',clickCount:1,buttons:1})
-  await wait(2.5)
 
-  // ② 聚焦「搜索音乐」框 → React 兼容填值 → 回车触发搜索
-  const searchOk = await js(String.raw`(() => {
-    const inp=[...document.querySelectorAll('input')].find(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&/搜索音乐/.test(el.placeholder||'')});
-    if(!inp)return{ok:false};
-    inp.focus(); inp.click();
-    inp.id='ego-music-search';
-    return{ok:true};
-  })()`)
+  // ④ 面板打开是轮询等（慢代理渲染可 >3s，单次找不到≠没开，8/23 静默丢配乐的根因之一）
+  let searchOk = {ok:false}
+  for (let i = 0; i < 10 && !searchOk.ok; i++) {
+    await wait(1)
+    searchOk = await js(String.raw`(() => {
+      const inp=[...document.querySelectorAll('input')].find(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&/搜索音乐/.test(el.placeholder||'')});
+      if(!inp)return{ok:false};
+      inp.focus(); inp.click();
+      inp.id='ego-music-search';
+      return{ok:true};
+    })()`)
+  }
+  if(!searchOk.ok){ cliLog('⚠️ 面板 10s 未开（CDP 限流时改 element.click() 纯页面事件重点一次入口再轮询）') }
   if(searchOk.ok){
     const setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
     await js(String.raw`(() => {const inp=document.querySelector('#ego-music-search');const setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;setter.call(inp,${JSON.stringify(KEYWORD)});inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));return 1})()`)
@@ -378,8 +386,19 @@ else {
       if(useBtn){await cdp('Input.dispatchMouseEvent',{type:'mouseMoved',x:useBtn.x,y:useBtn.y});await cdp('Input.dispatchMouseEvent',{type:'mousePressed',x:useBtn.x,y:useBtn.y,button:'left',clickCount:1,buttons:1});await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',x:useBtn.x,y:useBtn.y,button:'left',clickCount:1,buttons:1});await wait(2.5)}
     }
   }
-  const s=await snapshotText()
-  cliLog('配乐结果: ' + (/修改音乐|创作的原声|更换音乐/.test(s)?'✅已选':'⚠️未确认'))
+  // ⑤ 收尾核验（锚定配乐行，禁全页正则——8/23 误报根源）
+  const st = await js(String.raw`(() => {
+    const text=(document.body.innerText||'').replace(/\s+/g,' ');
+    // 配乐行空态提示还在 = 没配上（最可靠的反信号）
+    const stillEmpty=/点击添加合适作品风格音乐/.test(text);
+    // 入口按钮(pointer+svg 的「选择音乐」)文案变成 修改/更换 = 配上了
+    const vis=el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};
+    const btn=[...document.querySelectorAll('button,div,span,a')].filter(vis).find(el=>/选择音乐|修改音乐|更换音乐/.test((el.textContent||'').trim())&&getComputedStyle(el).cursor==='pointer'&&el.querySelector('svg'));
+    return {stillEmpty, btnText:btn?(btn.textContent||'').trim():''};
+  })()`)
+  if(!st.stillEmpty && /修改音乐|更换音乐/.test(st.btnText)) cliLog('配乐结果: ✅已选(' + st.btnText + ')')
+  else if(st.stillEmpty) cliLog('配乐结果: ❌未配上(空态提示仍在)——重试一次；仍失败按策略接受无BGM,如实回报「未配乐」,禁止写✅')
+  else cliLog('配乐结果: ⚠️状态不明(空态消失但按钮文案=' + st.btnText + ')——人工核对')
 }
 EOF
 ```
@@ -451,6 +470,13 @@ EOF
 ```
 
 **草稿存在性验证（2026-08-21 实测：manage 页没有「草稿」tab，别去那找）**：重新打开 upload 页（`.../content/upload?default-tab=3`），若出现 **「你还有上次未发布的图文，是否继续编辑？」提示 = 草稿在**。需要给 Daniel 留证时，点「继续编辑」恢复草稿 → 截图核对标题/描述/图/配乐/AIGC 全在，再「暂存离开」存回。
+
+> ⚠️ **恢复后核验配乐同样禁止全页正则**（`hasMusic:/更换音乐|修改音乐|创作的原声/` 8/23 把没配上误报成 true，日报跟着写假✅）。锚定版：
+> ```js
+> hasMusic: !/点击添加合适作品风格音乐/.test(text) && (/修改音乐|更换音乐/.test((musicBtn&&musicBtn.textContent)||''))
+> // musicBtn = pointer+svg 的配乐入口按钮；空态提示「点击添加合适作品风格音乐」仍在 = 一定没配上
+> ```
+> 顺带：恢复草稿后若空态提示在，说明**草稿里的配乐本来就没存上**（或恢复被重置）——重跑 Step 5 再核，别把假 true 写进回报。
 
 存草稿成功后，**截图留证**：
 

@@ -118,7 +118,7 @@ console.log(JSON.stringify(scored.slice(0,5).map(({rank,title,popularity,cluster
 1. 开 `creator.douyin.com/creator-micro/content/upload?default-tab=3`，确认登录
 2. 上传 4 张图（原生 input 优先，找不到→注入 input；等 editorReady 稳定 10s）
 3. 填标题+描述+话题实体化（clearAndFillDouyinBody + addDouyinTopic）
-4. 配乐（入口在视口外先 scroll dy=300 再测坐标）
+4. 配乐（入口在视口外先 scroll dy=300 再测坐标；**收尾必须锚定核验**：空态提示「点击添加合适作品风格音乐」消失 + 入口变「修改/更换音乐」才算配上。8/23 事故：全页正则误报 ✅，实际没配乐的帖静默发出）
 5. **AIGC 最后设**（配乐弹窗会重置它，设完复查）
 6. 截图 `/tmp/douyin_draft_preview.png`
 7. **飞书审批门**（定时模式 `--timeout 7200 --detach`，**必须加 --detach**）：
@@ -176,7 +176,7 @@ python3 .claude/skills/daily-news-douyin/scripts/cleanup_resources.py
 | 资源清理 | ✅ 关 N space / 杀 N 孤儿 / 临时文件 N 个（详情 /tmp/cleanup_result.json） |
 
 ## 详情
-（每步的关键细节：选稿理由、生成重试、配乐曲目、审批等待时长、发布是否触发验证码等）
+（每步的关键细节：选稿理由、生成重试、**配乐曲目+锚定核验结果（✅曲目名 / ❌未配上+原因，不许只写「已配」）**、审批等待时长、发布是否触发验证码等）
 
 ## 产物清单
 （文章路径、4 张图路径、截图路径）
