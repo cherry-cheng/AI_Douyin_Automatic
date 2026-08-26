@@ -19,7 +19,7 @@ python3 .claude/skills/daily-news-douyin/scripts/check_gemini_health.py
 # 资源清理（永远 exit 0，不会阻断流程）
 python3 .claude/skills/daily-news-douyin/scripts/cleanup_resources.py
 
-# 手动补跑每日流水线（错过 launchd 8:00 触发时）
+# 手动补跑每日流水线（错过 launchd 7:00 触发时）
 bash ~/daily-news-douyin/run_daily.sh
 
 # 测试（video-publisher 是仓库里唯一有测试的模块）
@@ -34,7 +34,7 @@ ego-browser nodejs < /tmp/ego_<步骤>.js    # 脚本先 Write 落盘再管道�
 `daily-news-douyin` 是编排层，串起四个技能：
 
 ```
-launchd (每日 8:00)
+launchd (每日 7:00)
   → ~/daily-news-douyin/run_daily.sh          # 部署副本！改源文件后必须 cp 同步
     → Phase 1: claude -p 跑流水线
         ① 环境自检（ego-browser / Clash 7890 / 抖音 config / cloudflared / Gemini 登录态）

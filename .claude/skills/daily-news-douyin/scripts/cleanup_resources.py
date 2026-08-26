@@ -9,7 +9,7 @@
      生命周期独立于 claude，见 await_approval.py _detach 注释）。清理策略：
      - 活门豁免：/tmp/douyin_approval_current.json 登记的 pid 存活且确是 await_approval
        → 不杀（它在等 Daniel 点飞书卡片），其 cloudflared 子进程一并保留
-     - 未登记的 await_approval：etime > 3h15m（超审批窗 7200s+余量）判残留 → TERM；
+     - 未登记的 await_approval：etime 超审批窗+余量（现 6h15m，随 APPROVAL_MAX_AGE_SEC）判残留 → TERM；
        窗口内的不杀（可能刚 fork 还没登记，或正在正常服务）
      - await_verification_code.py 未守护化，沿用旧逻辑：父进程死 → TERM
      - cloudflared：父是活门 → 留；父死 → TERM；其余留（防误杀 Daniel 手动隧道）
@@ -43,8 +43,9 @@ ORPHAN_PATTERNS = [
 ]
 # 守护化活门登记文件（await_approval.py --detach 模式维护）
 APPROVAL_CURRENT = "/tmp/douyin_approval_current.json"
-# 守护化审批门的最大合法寿命：审批窗 7200s + 15min 余量（超时守护进程应已自然退出）
-APPROVAL_MAX_AGE_SEC = 7200 + 900
+# 守护化审批门的最大合法寿命：审批窗 21600s(6h) + 15min 余量（超时守护进程应已自然退出）
+# 2026-08-26 起审批窗从 2h 改 6h，此值同步放大——不改会误杀 6h 活门
+APPROVAL_MAX_AGE_SEC = 21600 + 900
 # cloudflared 只杀「无 controlling tty + 由 python 起的 quick tunnel」——
 # 特征 = 命令行含 "tunnel --no-autoupdate --url http://127.0.0.1:PORT"
 CF_PATTERN = re.compile(r"cloudflared.*tunnel.*--no-autoupdate\s+--url\s+http://127\.0\.0\.1:\d+")
@@ -226,7 +227,7 @@ def kill_orphans():
             age = _proc_age_sec(pid, by_pid)
             if age is not None and age > APPROVAL_MAX_AGE_SEC:
                 term_awaits.add(pid)
-                kept.append({"pid": pid, "why": "stale_gate>3h15m TERM", "cmd": cmd[:120]})
+                kept.append({"pid": pid, "why": f"stale_gate>{APPROVAL_MAX_AGE_SEC//60}min TERM", "cmd": cmd[:120]})
             else:
                 kept.append({"pid": pid, "why": "gate_in_window", "cmd": cmd[:120]})
             continue

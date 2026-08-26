@@ -504,7 +504,7 @@ python3 scripts/await_approval.py \
   --title "标题" \
   --desc "描述 #话题1 #话题2" \
   --cover "默认(不设，抖音用首图/首帧)" \
-  --timeout 7200 \
+  --timeout 21600 \
   --detach
 # 命令立即返回；之后轮询（30s 间隔）：
 #   读 /tmp/douyin_approval_result.json 的 result 字段 → 决定发布/保草稿

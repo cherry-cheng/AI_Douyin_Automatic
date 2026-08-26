@@ -1,6 +1,6 @@
 ---
 name: daily-news-douyin
-description: 每日头条科技新闻 → 抖音图文全自动流水线。抓热榜选科技新闻→写文章→生成4张视觉笔记→自动发布抖音（飞书审批门，默认保草稿）→生成本地日报。触发词：每日新闻、daily news、自动发布流水线、跑日报。定时任务每日 8:00 自动调用（launchd），也可手动触发。
+description: 每日头条科技新闻 → 抖音图文全自动流水线。抓热榜选科技新闻→写文章→生成4张视觉笔记→自动发布抖音（飞书审批门，默认保草稿）→生成本地日报。触发词：每日新闻、daily news、自动发布流水线、跑日报。定时任务每日 7:00 自动调用（launchd），也可手动触发。
 ---
 
 # 每日新闻 → 抖音图文全自动流水线
@@ -10,7 +10,7 @@ description: 每日头条科技新闻 → 抖音图文全自动流水线。抓�
 ## 铁律
 
 1. **内容自动起草、不过目**：标题/描述/话题按 `douyin-ego-publish/templates/desc-template.md` 起草后**直接填**，不停下来问 Daniel（这是与手动调用 douyin-ego-publish 的唯一差异）。
-2. **发布必须过飞书审批门**：全流程自动跑完 → 发审批卡片 → **等 Daniel 点「✅确认发布」** → 才点发布。定时模式超时 **7200s（2 小时）**，超时保草稿不发布。
+2. **发布必须过飞书审批门**：全流程自动跑完 → 发审批卡片 → **等 Daniel 点「✅确认发布」** → 才点发布。定时模式超时 **21600s（6 小时）**，超时保草稿不发布。
 3. **每步失败不静默**：任何一步失败，先重试一次（换措辞/新会话），再失败就跳过该步继续跑完剩余步骤，**日报里如实记录失败点**。
 4. **日报必生成**：无论成功失败，最后写 `reports/YYYY-MM-DD-daily-report.md`。
 5. **资源必回收（成败都一样）**：流水线开的 task space（visual notes / douyin publish / gemini-health-check）用完即关；审批门 `--detach` 守护化自管生命周期（cloudflared 随门退）；claude 侧收尾后**写 `/tmp/daily_gate_done` 标记**（run_daily.sh 据此判断是否需要 Phase-2 补跑）。**Step 7 清理是硬要求**——run_daily.sh 退出前还有兜底扫一遍（双保险；活门已被豁免不会误杀）。user-owned 的 task space（如 Daniel 手开的 `douyin publish probe`）和 ego lite 浏览器本体**永远不碰**。
@@ -121,17 +121,17 @@ console.log(JSON.stringify(scored.slice(0,5).map(({rank,title,popularity,cluster
 4. 配乐（入口在视口外先 scroll dy=300 再测坐标；**收尾必须锚定核验**：空态提示「点击添加合适作品风格音乐」消失 + 入口变「修改/更换音乐」才算配上。8/23 事故：全页正则误报 ✅，实际没配乐的帖静默发出）
 5. **AIGC 最后设**（配乐弹窗会重置它，设完复查）
 6. 截图 `/tmp/douyin_draft_preview.png`
-7. **飞书审批门**（定时模式 `--timeout 7200 --detach`，**必须加 --detach**）：
+7. **飞书审批门**（定时模式 `--timeout 21600 --detach`（6h，2026-08-26 起），**必须加 --detach**）：
 
 ```bash
 cd <project_root>/.claude/skills/douyin-ego-publish && python3 scripts/await_approval.py \
   --config ~/.config/douyin-ego-publish/config.json \
   --screenshot /tmp/douyin_draft_preview.png \
   --type "图文" --title "<标题>" --desc "<描述+话题>" \
-  --cover "默认(不设)" --timeout 7200 --detach
+  --cover "默认(不设)" --timeout 21600 --detach
 ```
 
-**--detach 守护化（2026-08-22 事故后强制）**：命令立即返回，门独立进程跑（claude 死活不影响 Daniel 点击）。之后**轮询 `/tmp/douyin_approval_result.json`**（30s 间隔，最长 2.5h）读 `result` 字段：APPROVED→发布；REJECTED/TIMEOUT/KILLED→保草稿；SEND_FAILED/NO_CF/NOCONFIG→门没起来按失败处理。起门 10 分钟 `/tmp/douyin_approval_current.json` 不出现=门没起来。**别再用 run_in_background 跑长阻塞**——claude 单回合 end_turn 退出会把门变成孤儿被清理杀掉，Daniel 点击就打到死 URL（8/22 实际发生）。
+**--detach 守护化（2026-08-22 事故后强制）**：命令立即返回，门独立进程跑（claude 死活不影响 Daniel 点击）。之后**轮询 `/tmp/douyin_approval_result.json`**（30s 间隔，最长 6.5h）读 `result` 字段：APPROVED→发布；REJECTED/TIMEOUT/KILLED→保草稿；SEND_FAILED/NO_CF/NOCONFIG→门没起来按失败处理。起门 10 分钟 `/tmp/douyin_approval_current.json` 不出现=门没起来。**别再用 run_in_background 跑长阻塞**——claude 单回合 end_turn 退出会把门变成孤儿被清理杀掉，Daniel 点击就打到死 URL（8/22 实际发生）。
 
 8. `RESULT=APPROVED` → 发布（CDP 单步点击，被吞则 React onClick 直调兜底）；触发验证码走 8b 中继；`REJECTED/TIMEOUT` → 保草稿
 9. 发布成功信号 = URL 跳 `/content/manage`；之后截图收尾
@@ -186,7 +186,7 @@ python3 .claude/skills/daily-news-douyin/scripts/cleanup_resources.py
 
 reports/ 目录不存在则创建。日报写完即流水线结束。
 
-## 定时运行（launchd，每日 8:00）
+## 定时运行（launchd，每日 7:00，2026-08-26 起从 8:00 改 7:00）
 
 包装脚本 `.claude/skills/daily-news-douyin/scripts/run_daily.sh`（launchd 触发；实际部署副本在 `~/daily-news-douyin/run_daily.sh`，改完源文件记得 cp 同步）。**2026-08-22 起两阶段架构**（8/22 事故：claude 单回合 end_turn 退出 → 门被清 → Daniel 点确认打到死 URL）：
 
@@ -196,13 +196,13 @@ reports/ 目录不存在则创建。日报写完即流水线结束。
 4. 兜底 `cleanup_resources.py` 最后跑（活门豁免，不会误杀）
 
 要点：
-- 防重入 mkdir 原子锁（>4h 陈锁破锁重跑）
+- 防重入 mkdir 原子锁（>6.5h 陈锁破锁重跑，随 6h 审批窗联动）
 - 清理永远 exit 0 不影响退出码记录
 - 日志 `~/daily-news-douyin/logs/daily-YYYY-MM-DD.log`（Documents 受 TCC 保护，launchd bash 读不了，日志放用户根目录）
 
-plist `~/Library/LaunchAgents/com.plato.daily-news-douyin.plist`：StartCalendarHandle Hour=8 Minute=0（源码见 scripts/ 下同名 plist 样例）。
+plist `~/Library/LaunchAgents/com.plato.daily-news-douyin.plist`：StartCalendarInterval Hour=7 Minute=0（源码见 scripts/ 下同名 plist 样例）。
 
-**手动补跑**：错过 8 点（电脑关机等）launchd 错过不补，手动跑 `bash .claude/skills/daily-news-douyin/scripts/run_daily.sh` 即可。
+**手动补跑**：错过 7 点（电脑关机等）launchd 错过不补，手动跑 `bash .claude/skills/daily-news-douyin/scripts/run_daily.sh` 即可。
 
 **权限模式说明**：定时跑用 `--permission-mode acceptEdits`——发布流程里的 Bash 命令（ego-browser/node/python3 等）已通过 `--allowedTools` 白名单放行，审批门本身是安全门（Daniel 飞书确认），所以 headless 自动化是安全的。
 ```

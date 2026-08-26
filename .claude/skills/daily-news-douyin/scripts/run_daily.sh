@@ -1,5 +1,5 @@
 #!/bin/bash
-# daily-news-douyin 定时入口（launchd 每日 8:00 触发）
+# daily-news-douyin 定时入口（launchd 每日 7:00 触发，2026-08-26 起从 8:00 改 7:00）
 # 注意：本脚本必须放在 ~/daily-news-douyin/（Documents 受 macOS TCC 保护，launchd 进程读不了）
 # 手动补跑：bash ~/daily-news-douyin/run_daily.sh
 #
@@ -24,7 +24,7 @@ LOGDIR="$RUNDIR/logs"
 GATE_RESULT=/tmp/douyin_approval_result.json
 GATE_CURRENT=/tmp/douyin_approval_current.json
 GATE_DONE=/tmp/daily_gate_done
-GATE_TIMEOUT=7200        # 审批窗，与 SKILL.md --timeout 7200 一致
+GATE_TIMEOUT=21600       # 审批窗 6h，与 SKILL.md --timeout 21600 一致（2026-08-26 起从 2h 改 6h）
 mkdir -p "$LOGDIR" "$PROJECT/logs" "$PROJECT/reports" 2>/dev/null
 LOG="$LOGDIR/daily-$(date +%F).log"
 echo "=== daily-news-douyin start $(date) ===" >> "$LOG"
@@ -32,8 +32,8 @@ echo "=== daily-news-douyin start $(date) ===" >> "$LOG"
 # 防重入：mkdir 原子锁（pgrep -f 会误匹配脚本自身路径，弃用）
 LOCK="$LOGDIR/running.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
-  # 锁存在：>4h 视为陈锁（审批门 2h + Phase2 + 余量），破锁重跑
-  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +240 2>/dev/null)" ]; then
+  # 锁存在：>6.5h 视为陈锁（审批门 6h + Phase2 + 余量），破锁重跑
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +390 2>/dev/null)" ]; then
     echo "$(date) 发现陈锁(>4h)，破锁重跑" >> "$LOG"; rmdir "$LOCK" 2>/dev/null; mkdir "$LOCK" 2>/dev/null || exit 0
   else
     echo "$(date) 上一次运行尚未结束，跳过本次触发" >> "$LOG"
@@ -55,7 +55,7 @@ fi
 ~/.local/bin/claude -p "运行 daily-news-douyin 技能：完整执行每日新闻到抖音发布流水线。按 SKILL.md 顺序：环境自检→选稿→写文章→4张视觉笔记→抖音发布→资源清理(Step 6)→写日报到 reports/。内容自动起草不需要用户过目。
 审批门新规（2026-08-22 起，必须遵守）：
 1. await_approval.py 一律加 --detach 参数启动（守护化，命令立即返回，不阻塞不后台等待）。
-2. 启动后轮询 /tmp/douyin_approval_result.json（每 30s 一次，最长 2.5h）读到 result 字段。
+2. 启动后轮询 /tmp/douyin_approval_result.json（每 30s 一次，最长 6.5h）读到 result 字段。
 3. 读到 APPROVED → 发布 → 资源清理 → 写日报；REJECTED/TIMEOUT/KILLED → 保草稿 → 资源清理 → 写日报。
 4. 全部收尾完成后：写标记文件 /tmp/daily_gate_done（内容=日期+结果）。
 5. 若轮询 10 分钟 /tmp/douyin_approval_current.json 都不出现（门没起来），按发布失败处理，写日报说明。" \
