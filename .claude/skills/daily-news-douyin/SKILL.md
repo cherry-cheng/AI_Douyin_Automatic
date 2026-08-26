@@ -194,6 +194,7 @@ reports/ 目录不存在则创建。日报写完即流水线结束。
 2. **Gate**（shell 层，与 claude 死活无关）：结果文件没出但门活着（current.json 在、pid 活）→ 继续等 Daniel 点击（最长 timeout+600s）；门进程消失无结果 → 写 KILLED
 3. **Phase 2**：done 标记不在（claude 中途死了）→ 补跑一个 claude 会话消费审批结果：APPROVED→恢复草稿发布；REJECTED/TIMEOUT/KILLED→保草稿；然后清理+日报
 4. 兜底 `cleanup_resources.py` 最后跑（活门豁免，不会误杀）
+5. **失败飞书告警**（2026-08-26 加，8/25 教训：两阶段全挂于 API 连接中断，零产出但无人知晓，隔天才翻日志发现）：①两阶段 claude 都 exit≠0 → `send_feishu_alert.py` 发红色告警卡；②门没起来（无结果文件）→ 同样告警。告警含补跑命令+日志尾部摘要；脚本永远 exit 0 不反噬流水线
 
 要点：
 - 防重入 mkdir 原子锁（>6.5h 陈锁破锁重跑，随 6h 审批窗联动）

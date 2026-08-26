@@ -25,6 +25,11 @@ GATE_RESULT=/tmp/douyin_approval_result.json
 GATE_CURRENT=/tmp/douyin_approval_current.json
 GATE_DONE=/tmp/daily_gate_done
 GATE_TIMEOUT=21600       # 审批窗 6h，与 SKILL.md --timeout 21600 一致（2026-08-26 起从 2h 改 6h）
+ALERT="$PROJECT/.claude/skills/daily-news-douyin/scripts/send_feishu_alert.py"
+# 失败飞书告警（2026-08-26 加，8/25 教训：两阶段全挂于 API 中断，零产出且无人知晓）
+alert() {  # alert "原因" [额外备注]
+  python3 "$ALERT" --reason "$1" --log "$LOG" ${2:+--extra "$2"} >> "$LOG" 2>&1 || true
+}
 mkdir -p "$LOGDIR" "$PROJECT/logs" "$PROJECT/reports" 2>/dev/null
 LOG="$LOGDIR/daily-$(date +%F).log"
 echo "=== daily-news-douyin start $(date) ===" >> "$LOG"
@@ -88,6 +93,10 @@ fi
 if [ ! -f "$GATE_DONE" ]; then
   GATE_RES=$(python3 -c "import json;print(json.load(open('$GATE_RESULT')).get('result','NO_RESULT'))" 2>/dev/null || echo NO_RESULT)
   echo "$(date) Phase1 未完成收尾（无 done 标记），审批结果=$GATE_RES，补跑 Phase2" >> "$LOG"
+  # 门没起来（结果文件不存在，Phase1 没跑到发卡就死了）→ 告警
+  if [ "$GATE_RES" = "NO_RESULT" ] && [ ! -f "$GATE_RESULT" ]; then
+    alert "审批门未启动（无结果文件），Phase1 在发卡前中断" "草稿状态未知，需人工检查抖音创作者后台"
+  fi
   ~/.local/bin/claude -p "这是每日流水线的 Phase-2 补跑（Phase-1 的 claude 中途退出了，审批门已守护化独立跑完）。审批结果在 /tmp/douyin_approval_result.json（result 字段=APPROVED/REJECTED/TIMEOUT/KILLED）。
 你的任务：
 1. 读 /tmp/douyin_approval_result.json 的 result。
@@ -101,6 +110,10 @@ if [ ! -f "$GATE_DONE" ]; then
     >> "$LOG" 2>&1
   P2=$?
   echo "=== Phase2 claude exit=$P2 $(date) ===" >> "$LOG"
+  # 两阶段全挂（8/25 场景：API 连接中断连撞两次）→ 飞书告警，别等翻日志才发现
+  if [ "$P1" -ne 0 ] && [ "$P2" -ne 0 ]; then
+    alert "两阶段 claude 全部失败（Phase1 exit=$P1 / Phase2 exit=$P2），当日零产出" "可能是 API 连接中断；确认服务恢复后手动补跑"
+  fi
 else
   echo "$(date) Phase1 已完成全部收尾（done 标记在），跳过 Phase2" >> "$LOG"
 fi
