@@ -34,6 +34,16 @@ mkdir -p "$LOGDIR" "$PROJECT/logs" "$PROJECT/reports" 2>/dev/null
 LOG="$LOGDIR/daily-$(date +%F).log"
 echo "=== daily-news-douyin start $(date) ===" >> "$LOG"
 
+# claude 可执行文件定位（2026-08-27 事故：claude 安装位置从 ~/.local/bin 漂到 ~/.npm-global/bin，
+# 旧硬编码路径 exit=127 两阶段全灭零产出。教训：不硬编码绝对路径，用 PATH 解析 + 启动前校验）
+CLAUDE_BIN="$(command -v claude || true)"
+if [ -z "$CLAUDE_BIN" ]; then
+  echo "$(date) ❌ PATH 里找不到 claude（安装位置又漂了？which claude 查新路径后改上面 export PATH 行）" >> "$LOG"
+  alert "claude 可执行文件找不到（exit=127 根因），两阶段将全灭" "which claude 查新路径，修 run_daily.sh 的 PATH 行"
+  exit 1
+fi
+echo "$(date) 使用 claude: $CLAUDE_BIN" >> "$LOG"
+
 # 防重入：mkdir 原子锁（pgrep -f 会误匹配脚本自身路径，弃用）
 LOCK="$LOGDIR/running.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -57,7 +67,7 @@ if ! cd "$PROJECT" 2>>"$LOG"; then
 fi
 
 # ─────────── Phase 1：claude 跑流水线（到发卡为止 + 尽力等到结果收尾）───────────
-~/.local/bin/claude -p "运行 daily-news-douyin 技能：完整执行每日新闻到抖音发布流水线。按 SKILL.md 顺序：环境自检→选稿→写文章→4张视觉笔记→抖音发布→资源清理(Step 6)→写日报到 reports/。内容自动起草不需要用户过目。
+"$CLAUDE_BIN" -p "运行 daily-news-douyin 技能：完整执行每日新闻到抖音发布流水线。按 SKILL.md 顺序：环境自检→选稿→写文章→4张视觉笔记→抖音发布→资源清理(Step 6)→写日报到 reports/。内容自动起草不需要用户过目。
 审批门新规（2026-08-22 起，必须遵守）：
 1. await_approval.py 一律加 --detach 参数启动（守护化，命令立即返回，不阻塞不后台等待）。
 2. 启动后轮询 /tmp/douyin_approval_result.json（每 30s 一次，最长 6.5h）读到 result 字段。
@@ -97,7 +107,7 @@ if [ ! -f "$GATE_DONE" ]; then
   if [ "$GATE_RES" = "NO_RESULT" ] && [ ! -f "$GATE_RESULT" ]; then
     alert "审批门未启动（无结果文件），Phase1 在发卡前中断" "草稿状态未知，需人工检查抖音创作者后台"
   fi
-  ~/.local/bin/claude -p "这是每日流水线的 Phase-2 补跑（Phase-1 的 claude 中途退出了，审批门已守护化独立跑完）。审批结果在 /tmp/douyin_approval_result.json（result 字段=APPROVED/REJECTED/TIMEOUT/KILLED）。
+  "$CLAUDE_BIN" -p "这是每日流水线的 Phase-2 补跑（Phase-1 的 claude 中途退出了，审批门已守护化独立跑完）。审批结果在 /tmp/douyin_approval_result.json（result 字段=APPROVED/REJECTED/TIMEOUT/KILLED）。
 你的任务：
 1. 读 /tmp/douyin_approval_result.json 的 result。
 2. APPROVED → 抖音草稿已在创作者后台（upload 页「继续编辑」可恢复）：用 ego-browser 恢复草稿 → CDP 人类化点击发布（被吞则 React onClick 直调兜底）→ 确认跳转 manage 页。
