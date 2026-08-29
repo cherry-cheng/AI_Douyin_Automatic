@@ -366,7 +366,7 @@ else {
   }
   if(!searchOk.ok){ cliLog('⚠️ 面板 10s 未开（CDP 限流时改 element.click() 纯页面事件重点一次入口再轮询）') }
   if(searchOk.ok){
-    const setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+    // ⚠️ 别在 Node 层碰 window（2026-08-29 实测 ReferenceError）——setter 必须在 js() 页面代码内取
     await js(String.raw`(() => {const inp=document.querySelector('#ego-music-search');const setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;setter.call(inp,${JSON.stringify(KEYWORD)});inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));return 1})()`)
     await wait(0.8)
     // 回车触发搜索请求
@@ -551,7 +551,8 @@ ego-browser nodejs <<'EOF'
 const task = await useOrCreateTaskSpace('douyin publish')
 
 // —— 发布前：补 AIGC 自主声明（发布强制，草稿不强制）——
-// 入口文案/DOM 以当前 snapshot 为准（常为「自主声明」下拉 →「内容由AI生成」）
+// ⚠️ 2026-08-29 实测：「自主声明」label 本身不可点；真正的下拉是文案「请选择自主声明」的
+// selectBox（controlWrapper）。选「内容由AI生成」，设置完用 selectedText 复查确认。
 // 选它也用反检测的人类化点击，别瞬移。
 
 // —— 行为预热：滚一下、停一停，造真实交互历史（注意：所有滚动必须在「测坐标」之前做完）——

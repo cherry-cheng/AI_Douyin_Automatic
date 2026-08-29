@@ -61,6 +61,15 @@ for i in 1 2 3; do
 done
 export DISABLE_AUTOUPDATER=1   # 流水线会话内禁自动更新：更新器重装二进制的窗口会砸启动（2026-08-29）
 
+# ✅ 2026-08-29 根因闭环：launchd 下 claude 秒崩 "An unknown error occurred (Unexpected)"
+#   （有时误报成 fd 文案变体）= claude 2.1.78+ TCC 身份改 Bundle ID，launchd 环境无 ~/Documents
+#   访问权，cd 进项目目录即 EPERM。终端跑正常是 Terminal 的 TCC 庇护。
+#   解法：给 claude.exe 授「完全磁盘访问权限」（系统设置→隐私与安全性→完全磁盘访问权限，
+#   Cmd+Shift+G 粘 ~/.npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe）。
+#   Daniel 已于 8/29 授权并经 launchctl submit 探针验证通过。
+#   ⚠️ claude 若重装/升级会换签名 → FDA 失效、此症复发，重新授权即可。
+#   诊断口诀：同命令终端好、launchd 崩 → 先怀疑 TCC，用「cd 项目 vs cd ~」A/B 探针一分定位。
+
 # 防重入：mkdir 原子锁（pgrep -f 会误匹配脚本自身路径，弃用）
 LOCK="$LOGDIR/running.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
