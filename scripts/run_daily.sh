@@ -34,6 +34,13 @@ mkdir -p "$LOGDIR" "$PROJECT/logs" "$PROJECT/reports" 2>/dev/null
 LOG="$LOGDIR/daily-$(date +%F).log"
 echo "=== daily-news-douyin start $(date) ===" >> "$LOG"
 
+# 全程防睡眠（2026-09-03 事故：Mac 白天反复睡眠把流水线冻结 ~9.5h，发布漂到深夜；
+# 且睡眠期间 cloudflared 隧道断连，Daniel 在飞书点确认会打到死 URL。
+# -i 防系统闲置睡眠（屏幕可睡，不影响 CDP 自动化）；-w $$ 盯本脚本 PID，
+# 脚本退出即自动撤除断言，无需手工 kill、不会留孤儿进程。合盖睡眠 -i 挡不住，
+# 若 Daniel 合盖用机需再配 pmset 定时唤醒。）
+/usr/bin/caffeinate -i -w $$ >/dev/null 2>&1 &
+
 # claude 可执行文件定位（2026-08-27 事故：claude 安装位置从 ~/.local/bin 漂到 ~/.npm-global/bin，
 # 旧硬编码路径 exit=127 两阶段全灭零产出。教训：不硬编码绝对路径，用 PATH 解析 + 启动前校验）
 CLAUDE_BIN="$(command -v claude || true)"
