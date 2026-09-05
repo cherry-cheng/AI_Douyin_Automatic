@@ -511,6 +511,8 @@ python3 scripts/await_approval.py \
 #   起门后 10 分钟 current.json 还不出现 = 门没起来，按发布失败处理
 ```
 
+> **隧道自愈（2026-09-05 事故后内置，改 `--detach` 行为）**：Mac 合盖 Sleep Service 睡眠会把 cloudflared 打成植物人（进程活着但零出站连接），quick tunnel 域名随隧道实例报废——旧卡片 URL 死，Daniel 点确认打到死 URL。门现在每次心跳（60s）经公网探 `/healthz`；连续 3 次失败（~3min）自动杀旧 cloudflared 重开隧道，并用**原 token 补发一张新卡片**（注明旧卡失效；token 不变、门不动，点新卡≡点原卡）。补发上限 3 次防轰炸，重开失败下个心跳重试，超限后照常等到超时（TIMEOUT→保草稿，安全终态）。`current.json` 新增 `tunnel/tunnel_ok/tunnel_reissues` 字段供排查；`started` 只在开门时写（心跳不再覆盖）。**人工急救法**（自愈上限用尽时）：杀 cloudflared → `cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8848` 重开 → 用 current.json 里的原 token 调 `send_feishu_card()` 补发卡片，全程不碰门。
+
 - **前台模式（手动调试用，不加 --detach）**：阻塞等结果，stdout 最后一行 `RESULT=APPROVED` / `RESULT=REJECTED` / `RESULT=TIMEOUT`。结果同样落盘 result.json。
 
 结果处理（两种模式一致）：

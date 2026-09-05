@@ -190,6 +190,35 @@ def start_tunnel(port):
     return proc, url
 
 
+def _stop_tunnel(proc):
+    r"""温和收割 cloudflared：terminate → 5s wait → kill。自愈重开与退出共用。"""
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _tunnel_alive(url):
+    r"""隧道端到端探活：经公网打 /healthz（handler 见 do_GET）。
+
+    为什么不用 cloudflared metrics / lsof：metrics 端口随机、ha_connections 在部分版本
+    不导出；lsof 要解析。唯一有意义的信号是「Daniel 的点击此刻能不能打进来」，所以
+    直接走公网 GET。任何异常/非 200 都算死——2026-09-05 事故里睡眠断连后 cloudflared
+    进程活着、本地 metrics 也响应，但公网早已打不进来。直连 opener 绕 Clash 系统
+    代理（与 webhook POST 同路数，CA 已补全）。
+    """
+    try:
+        req = urllib.request.Request(url.rstrip("/") + "/healthz")
+        with _direct_opener().open(req, timeout=15) as resp:
+            return getattr(resp, "status", 0) == 200
+    except Exception:
+        return False
+
+
 def feishu_sign(secret, timestamp):
     """飞书自定义机器人加签：HMAC-SHA256(timestamp\nsecret) 的 base64。"""
     string_to_sign = f"{timestamp}\n{secret}"
@@ -404,8 +433,11 @@ def main():
     state.screenshot = args.screenshot
     shot_name = os.path.basename(args.screenshot) if args.screenshot else None
     # 活门登记：cleanup_resources.py 与等待方据此识别「这扇门还活着，别杀/再等」
+    # started 只在开门时写一次：心跳每 60s 重写本文件，若用当前时间会覆盖真实启动
+    # 时刻（9/5 排障时被它误导，pmset/ps 才是启动时间权威）
+    started_str = time.strftime("%F %T")
     _write_json_atomic(CURRENT_FILE, {
-        "pid": my_pid, "token": token, "started": time.strftime("%F %T"),
+        "pid": my_pid, "token": token, "started": started_str,
         "timeout": timeout, "title": args.title,
     })
 
@@ -431,22 +463,51 @@ def main():
             return
         print(f"📨 审批卡片已发到飞书，等待 Daniel 点击（超时 {timeout}s）...", flush=True)
 
-        # 4) 阻塞轮询 + 心跳：current 文件每 60s 刷新 ts，
-        #    cleanup 判「活门」看 pid 存活即可，ts 心跳供人工排查
+        # 4) 阻塞轮询 + 心跳 + 隧道自愈：current 文件每 60s 刷新 ts，
+        #    cleanup 判「活门」看 pid 存活即可，ts 心跳供人工排查。
+        #    2026-09-05 事故新增自愈：Mac 合盖 Sleep Service 睡眠把 cloudflared 打成
+        #    植物人（进程活着但边缘连接断、零出站 TCP），quick tunnel 域名绑定隧道实例
+        #    ——旧卡片 URL 随之报废，Daniel 点确认打到死 URL。心跳时经公网探 /healthz，
+        #    连续 3 次失败(~3min) → 杀旧 cloudflared 重开隧道 + 原 token 补发卡片
+        #    （token 不变、门不动，点新卡≡点原卡，9/5 人工急救验证过的路径）。
+        #    补发上限 3 次防轰炸；超限/重开失败则照常等到超时（TIMEOUT→保草稿安全终态）。
         deadline = time.time() + timeout
         last_beat = 0.0
+        tunnel_fails = 0
+        tunnel_reissues = 0
         while time.time() < deadline:
             with state.lock:
                 if state.result:
                     break
             if time.time() - last_beat > 60:
                 last_beat = time.time()
+                tunnel_ok = _tunnel_alive(tunnel)
+                tunnel_fails = 0 if tunnel_ok else tunnel_fails + 1
                 _write_json_atomic(CURRENT_FILE, {
                     "pid": my_pid, "token": token,
-                    "started": time.strftime("%F %T"),
+                    "started": started_str,
                     "beat": time.strftime("%F %T"),
                     "timeout": timeout, "title": args.title,
+                    "tunnel": tunnel, "tunnel_ok": tunnel_ok,
+                    "tunnel_reissues": tunnel_reissues,
                 })
+                if tunnel_fails >= 3:
+                    tunnel_fails = 0
+                    print(f"⚠️ 隧道探活连续失败，重开隧道（第 {tunnel_reissues + 1} 次）...", flush=True)
+                    _stop_tunnel(cf_proc)
+                    try:
+                        cf_proc, tunnel = start_tunnel(port)
+                        print(f"🌐 新隧道: {tunnel}", flush=True)
+                        if tunnel_reissues < 3:
+                            reissue = dict(fields)
+                            reissue["desc"] = (str(fields.get("desc", "")) +
+                                "\n⚠️ 此为补发卡片：上一张链接已失效（隧道中断自动重开），请以本张为准")
+                            ok2, info2 = send_feishu_card(webhook, secret, reissue,
+                                                          tunnel, token, shot_name)
+                            print(f"🔁 补发卡片 {'✅' if ok2 else '❌ ' + str(info2)[:200]}", flush=True)
+                        tunnel_reissues += 1
+                    except Exception as e:
+                        print(f"⚠️ 隧道重开失败（{e}），下个心跳再试", flush=True)
             time.sleep(2)
 
         with state.lock:
@@ -469,14 +530,7 @@ def main():
         except Exception:
             pass
         if cf_proc:
-            try:
-                cf_proc.terminate()
-                cf_proc.wait(timeout=5)
-            except Exception:
-                try:
-                    cf_proc.kill()
-                except Exception:
-                    pass
+            _stop_tunnel(cf_proc)
 
 
 def shutil_which(cmd):
