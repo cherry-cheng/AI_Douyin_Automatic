@@ -17,3 +17,6 @@ __pycache__/
 
 # === 运行时日志与抓取数据 ===
 logs/
+
+# === 流水线每日 ego-browser 草稿脚本堆（临时，配方在 SKILL.md）===
+.tmp_ego/
